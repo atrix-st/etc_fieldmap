@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>기타수질 현장조사 지도 (Vworld)</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+    #header {
+      position: absolute; top: 10px; left: 10px; right: 10px; z-index: 1000;
+      background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      padding: 8px 12px; display: flex; align-items: center; gap: 8px;
+    }
+    #search { flex: 1; border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px; font-size: 14px; outline: none; }
+    #count-badge { font-size: 12px; font-weight: bold; color: #555; white-space: nowrap; }
+    #map { width: 100vw; height: 100vh; }
+    .popup-box { min-width: 210px; padding: 2px; }
+    /* No. 관리번호 스타일 */
+    .popup-no { font-size: 11px; font-weight: 700; color: #0288d1; margin-bottom: 2px; letter-spacing: -0.2px; }
+    .popup-title { font-size: 15px; font-weight: bold; margin-bottom: 4px; color: #111; }
+    .popup-badge { display: inline-block; font-size: 11px; padding: 2px 6px; border-radius: 4px; margin-bottom: 6px; }
+    .badge-cat { background: #e3f2fd; color: #1976d2; }
+    .badge-closed { background: #ffebee; color: #d32f2f; font-weight: bold; margin-left: 4px; }
+    .popup-addr { font-size: 12px; color: #555; margin-bottom: 10px; line-height: 1.4; }
+    .navi-btn-group { display: flex; flex-direction: column; gap: 6px; }
+    .navi-btn {
+      display: block; text-align: center; padding: 8px 0; border-radius: 6px;
+      font-size: 13px; font-weight: bold; text-decoration: none; color: white;
+    }
+    .btn-kakao { background: #fee500; color: #181600; border: 1px solid #e2cb00; }
+    .btn-tmap { background: #e61e2b; }
+    .btn-naver { background: #03c75a; }
+  </style>
+</head>
+<body>
+
+<div id="header">
+  <input type="text" id="search" placeholder="관리번호(No.), 업소명, 주소 검색..." oninput="filterMarkers()">
+  <span id="count-badge">총 63개</span>
+</div>
+
+<div id="map"></div>
+
+<script>
+  // [필수] 브이월드에서 발급받은 인증키를 입력하세요.
+  const VWORLD_KEY = '5558C443-386E-4E6D-97B7-AF250ED97D10';
+
+  // 1. 브이월드 WMTS 타일 레이어
+  const vworldBase = L.tileLayer(`https://api.vworld.kr/req/wmts/1.0.0/${VWORLD_KEY}/Base/{z}/{y}/{x}.png`, {
+    maxZoom: 19, minZoom: 6, attribution: '&copy; 국토교통부 Vworld'
+  });
+
+  const vworldSatellite = L.tileLayer(`https://api.vworld.kr/req/wmts/1.0.0/${VWORLD_KEY}/Satellite/{z}/{y}/{x}.jpeg`, {
+    maxZoom: 19, minZoom: 6, attribution: '&copy; 국토교통부 Vworld'
+  });
+
+  const vworldHybrid = L.tileLayer(`https://api.vworld.kr/req/wmts/1.0.0/${VWORLD_KEY}/Hybrid/{z}/{y}/{x}.png`, {
+    maxZoom: 19, minZoom: 6
+  });
+
+  const vworldSatHybrid = L.layerGroup([vworldSatellite, vworldHybrid]);
+
+  // 2. 지도 초기화
+  const map = L.map('map', {
+    zoomControl: false,
+    layers: [vworldBase]
+  }).setView([37.8283, 127.5148], 12);
+
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+  const baseMaps = {
+    "브이월드 일반지도": vworldBase,
+    "브이월드 항공사진": vworldSatHybrid
+  };
+  L.control.layers(baseMaps, null, { position: 'bottomright' }).addTo(map);
+
+  // 3. 지점 데이터 등록 (no 필드 추가)
+  const data = [{"no": "오염원-2024-00002", "name": "가평자동차정비공업사", "mark": "가평자동차정비공업사", "addr": "경기도 가평군 가평읍 읍내리 351-4", "cat": "운수장비정비시설(폐차장포함)", "status": "", "lng": 127.51487288172515, "lat": 37.82831644249482}, {"no": "오염원-2024-00001", "name": "동신자동차공업사", "mark": "동신자동차공업사", "addr": "경기도 가평군 가평읍 읍내리 408-2", "cat": "운수장비정비시설(폐차장포함)", "status": "폐업", "lng": 127.51402503767191, "lat": 37.830786740203536}, {"no": "오염원-2024-00003", "name": "다다스튜디오", "mark": "다다스튜디오", "addr": "경기도 가평군 가평읍 읍내리 447-1", "cat": "사진처리 또는 X-Ray 시설", "status": "", "lng": 127.51323220580971, "lat": 37.83107740068636}, {"no": "오염원-2024-00005", "name": "새희망 마취통증의학과 의원", "mark": "새희망 마취통증의학과 의원", "addr": "경기도 가평군 가평읍 읍내리 468-21", "cat": "사진처리 또는 X-Ray 시설", "status": "", "lng": 127.5133611644814, "lat": 37.829833154488625}, {"no": "오염원-2024-00008", "name": "일공공일 안경점", "mark": "일공공일 안경점", "addr": "경기도 가평군 가평읍 읍내리 475-1", "cat": "안경점", "status": "", "lng": 127.51432934802561, "lat": 37.829077470266206}, {"no": "오염원-2024-00007", "name": "트윈스 안경원", "mark": "트윈스 안경원", "addr": "경기도 가평군 가평읍 읍내리 475-34", "cat": "안경점", "status": "", "lng": 127.51470441210024, "lat": 37.82778743430523}, {"no": "오염원-2024-00006", "name": "안경매니저 가평점", "mark": "안경매니저 가평점", "addr": "경기도 가평군 가평읍 읍내리 476-2", "cat": "안경점", "status": "", "lng": 127.51395228947754, "lat": 37.82872139049642}, {"no": "오염원-2024-00004", "name": "임내과", "mark": "임내과", "addr": "경기도 가평군 가평읍 읍내리 476-7(2층)", "cat": "사진처리 또는 X-Ray 시설", "status": "", "lng": 127.51369596775962, "lat": 37.82937022698869}, {"no": "오염원-2024-00011", "name": "가평성심의원", "mark": "가평성심의원", "addr": "경기도 가평군 가평읍 대곡리 189-3(가평읍 가화로 47)", "cat": "사진처리 또는 X-Ray 시설", "status": "", "lng": 127.5154750700525, "lat": 37.82405807283743}, {"no": "오염원-2024-00009", "name": "성모의원", "mark": "성모의원", "addr": "경기도 가평군 가평읍 대곡리 232", "cat": "사진처리 또는 X-Ray 시설", "status": "", "lng": 127.51483488398813, "lat": 37.82647431940034}, {"no": "오염원-2024-00010", "name": "빠리안경원", "mark": "빠리안경원", "addr": "경기도 가평군 가평읍 대곡리 239-4", "cat": "안경점", "status": "", "lng": 127.51412563577576, "lat": 37.825785863483716}, {"no": "오염원-2024-00013", "name": "테크원모터스㈜", "mark": "테크원모터스㈜", "addr": "경기도 가평군 가평읍 상색리 171-14,171-4", "cat": "운수장비정비시설(폐차장포함)", "status": "", "lng": 127.48712139904026, "lat": 37.80429169753454}, {"no": "오염원-2024-00014", "name": "가평점 기아오토큐", "mark": "가평점 기아오토큐", "addr": "경기도 가평군 가평읍 승안리 11-36", "cat": "운수장비정비시설(폐차장포함)", "status": "", "lng": 127.50602786193484, "lat": 37.84075260107605}, {"no": "오염원-2024-00015", "name": "베뉴지CC", "mark": "베뉴지CC", "addr": "경기도 가평군 가평읍 승안리 산176", "cat": "골프장", "status": "", "lng": 127.47814715832058, "lat": 37.847745054396626}, {"no": "오염원-2024-00012", "name": "주식회사 케이씨씨글라스 가평공장", "mark": "주식회사 케이씨씨글라스 가평공장", "addr": "경기도 가평군 가평읍 개곡리 산280(물안산길 42)", "cat": "운수장비정비시설(폐차장포함)", "status": "산업계", "lng": 127.5362120173096, "lat": 37.86303283512747}, {"no": "오염원-2024-00028", "name": "설악의원", "mark": "설악의원", "addr": "경기도 가평군 설악면 신천리 121-2", "cat": "사진처리 또는 X-Ray 시설", "status": "", "lng": 127.49496600271915, "lat": 37.676628331621444}, {"no": "오염원-2024-00026", "name": "안경나라", "mark": "안경나라", "addr": "경기도 가평군 설악면 신천리 408--27", "cat": "안경점", "status": "", "lng": 127.49312573338678, "lat": 37.67670661371918}, {"no": "오염원-2024-00029", "name": "국제모터스", "mark": "국제모터스", "addr": "경기도 가평군 설악면 신천리 520", "cat": "운수장비정비시설(폐차장포함)", "status": "", "lng": 127.48998260136321, "lat": 37.68287270766649}, {"no": "오염원-2024-00027", "name": "설악자동차공업사", "mark": "설악자동차공업사", "addr": "경기도 가평군 설악면 선촌리 470-7", "cat": "운수장비정비시설(폐차장포함)", "status": "", "lng": 127.48112424905253, "lat": 37.6778174954152}, {"no": "오염원-2024-00030", "name": "박심진", "mark": "박심진", "addr": "경기도 가평군 설악면 미사리 356외1", "cat": "농축수산물단순가공시설", "status": "양식계", "lng": 127.54149148113311, "lat": 37.70980398910755}, {"no": "오염원-2024-00025", "name": "㈜월드", "mark": "㈜월드", "addr": "경기도 가평군 설악면 창의리 60-5", "cat": "운수장비정비시설(폐차장포함)", "status": "", "lng": 127.51195064017708, "lat": 37.67325018916328}, {"no": "오염원-2024-00031", "name": "김영철", "mark": "김영철", "addr": "경기도 가평군 설악면 가일리 188-3", "cat": "농축수산물단순가공시설", "status": "양식계", "lng": 127.49395786709218, "lat": 37.602473268144735}, {"no": "오염원-2024-00023", "name": "아난티클럽서울㈜-1", "mark": "아난티클럽서울㈜-1", "addr": "경기도 가평군 설악면 방일리 산90-2", "cat": "골프장", "status": "", "lng": 127.47917773510795, "lat": 37.62078641547129}, {"no": "오염원-2024-00024", "name": "아난티클럽서울㈜-2", "mark": "아난티클럽서울㈜-2", "addr": "경기도 가평군 설악면 방일리 산90-2", "cat": "운수장비정비시설(폐차장포함)", "status": "", "lng": 127.47917773510795, "lat": 37.62078641547129}, {"no": "오염원-2024-00020", "name": "㈜대교디엔에스-1", "mark": "㈜대교디엔에스-1", "addr": "경기도 가평군 설악면 이천리 산2-1", "cat": "골프장", "status": "", "lng": 127.45730699431385, "lat": 37.664319629865574}, {"no": "오염원-2024-00022", "name": "㈜대교디엔에스-2", "mark": "㈜대교디엔에스-2", "addr": "경기도 가평군 설악면 이천리 산2-1", "cat": "운수장비정비시설(폐차장포함)", "status": "", "lng": 127.45730699431385, "lat": 37.664319629865574}, {"no": "오염원-2024-00019", "name": "㈜평산투자개발-1", "mark": "㈜평산투자개발-1", "addr": "경기도 가평군 설악면 이천리 산2-12", "cat": "골프장", "status": "", "lng": 127.45525198026208, "lat": 37.65522896987734}, {"no": "오염원-2024-00021", "name": "㈜평산투자개발-2", "mark": "㈜평산투자개발-2", "addr": "경기도 가평군 설악면 이천리 산2-12", "cat": "운수장비정비시설(폐차장포함)", "status": "", "lng": 127.45525198026208, "lat": 37.65522896987734}, {"no": "오염원-2024-00035", "name": "의료법인 청운의료재단", "mark": "의료법인 청운의료재단", "addr": "경기도 가평군 청평면 청평리 442-1", "cat": "사진처리 또는 X-Ray 시설", "status": "", "lng": 127.41551857459308, "lat": 37.73726465382757}, {"no": "오염원-2024-00033", "name": "청평1급자동차공업사", "mark": "청평1급자동차공업사", "addr": "경기도 가평군 청평면 청평리 452-2", "cat": "운수장비정비시설(폐차장포함)", "status": "", "lng": 127.4168788586471, "lat": 37.73657658646272}, {"no": "오염원-2024-00041", "name": "청평동물병원", "mark": "청평동물병원", "addr": "경기도 가평군 청평면 청평리 465-25", "cat": "X-RAY 시설", "status": "", "lng": 127.4204114796282, "lat": 37.73844457243348}, {"no": "오염원-2024-00038", "name": "지명관내과의원", "mark": "지명관내과의원", "addr": "경기도 가평군 청평면 청평리 465-18", "cat": "사진처리 또는 X-Ray 시설", "status": "폐업", "lng": 127.42057266884845, "lat": 37.73850494973617}, {"no": "오염원-2024-00039", "name": "강현철의원", "mark": "강현철의원", "addr": "경기도 가평군 청평면 청평리 465-8", "cat": "사진처리 또는 X-Ray 시설", "status": "", "lng": 127.41987047010974, "lat": 37.738281835028104}, {"no": "오염원-2024-00036", "name": "행운칼라사진관", "mark": "행운칼라사진관", "addr": "경기도 가평군 청평면 청평리 470-28", "cat": "사진처리 또는 X-Ray 시설", "status": "", "lng": 127.41902757200943, "lat": 37.73769721672399}, {"no": "오염원-2024-00040", "name": "홍인의원", "mark": "홍인의원", "addr": "경기도 가평군 청평면 청평리 470-31", "cat": "사진처리 또는 X-Ray 시설", "status": "", "lng": 127.41880484220597, "lat": 37.73760015167656}, {"no": "오염원-2024-00034", "name": "밝은세상안경", "mark": "밝은세상안경", "addr": "경기도 가평군 청평면 청평리 470-8", "cat": "안경점", "status": "", "lng": 127.41711501036832, "lat": 37.73652487605703}, {"no": "오염원-2024-00044", "name": "효남수산가평", "mark": "효남수산가평", "addr": "경기도 가평군 청평면 상천리 1121-2외2", "cat": "농축수산물단순가공시설", "status": "양식계", "lng": 127.44875709595159, "lat": 37.76771192347247}, {"no": "오염원-2024-00043", "name": "효남다슬기", "mark": "효남다슬기", "addr": "경기도 가평군 청평면 상천리 1160-5 외 5필지", "cat": "농축수산물단순가공시설", "status": "양식계", "lng": 127.44088523031327, "lat": 37.761908714051046}, {"no": "오염원-2024-00037", "name": "제일종합산업㈜", "mark": "제일종합산업㈜", "addr": "경기도 가평군 청평면 상천리 365", "cat": "운수장비정비시설(폐차장포함)", "status": "", "lng": 127.45861339479274, "lat": 37.7731901733254}, {"no": "오염원-2024-00032", "name": "1급청평제일자동차정비센터", "mark": "1급청평제일자동차정비센터", "addr": "경기도 가평군 청평면 하천리 230-19", "cat": "운수장비정비시설(폐차장포함)", "status": "", "lng": 127.43272778154649, "lat": 37.748877951072615}, {"no": "오염원-2024-00050", "name": "지민농원", "mark": "지민농원", "addr": "경기도 가평군 상면 항사리 305-1", "cat": "농축수산물단순가공시설", "status": "양식계", "lng": 127.36955273277762, "lat": 37.79298226123838}, {"no": "오염원-2024-00051", "name": "박경석", "mark": "박경석", "addr": "경기도 가평군 상면 항사리 306, 305-1", "cat": "농축수산물단순가공시설", "status": "양식계", "lng": 127.36949644399188, "lat": 37.79337776954609}, {"no": "오염원-2024-00052", "name": "지민농원-1", "mark": "지민농원-1", "addr": "경기도 가평군 상면 항사리 650-1", "cat": "농축수산물단순가공시설", "status": "양식계", "lng": 127.37012481218217, "lat": 37.7935135738995}, {"no": "오염원-2024-00053", "name": "지민농원-2", "mark": "지민농원-2", "addr": "경기도 가평군 상면 항사리 650-1", "cat": "농축수산물단순가공시설", "status": "양식계", "lng": 127.37012481218217, "lat": 37.7935135738995}, {"no": "오염원-2024-00045", "name": "㈜한송크리스탈밸리C.C", "mark": "㈜한송크리스탈밸리C.C", "addr": "경기도 가평군 상면 항사리 산36-2", "cat": "골프장", "status": "", "lng": 127.39019987517435, "lat": 37.791266384520306}, {"no": "오염원-2024-00046", "name": "㈜한송", "mark": "㈜한송", "addr": "경기도 가평군 상면 항사리 산36-2", "cat": "운수장비정비시설(폐차장포함)", "status": "", "lng": 127.39019987517435, "lat": 37.791266384520306}, {"no": "오염원-2024-00047", "name": "삼성물산(주)가평베네스트골프클럽", "mark": "삼성물산(주)가평베네스트골프클럽", "addr": "경기도 가평군 상면 상동리 산52", "cat": "운수장비정비", "status": "", "lng": 127.29420442218222, "lat": 37.797103720523864}, {"no": "오염원-2024-00048", "name": "삼성물산(주)가평베네스트골프클럽-1", "mark": "삼성물산(주)가평베네스트골프클럽-1", "addr": "경기도 가평군 상면 상동리 산52(둔덕말길 232)", "cat": "골프장", "status": "", "lng": 127.29420442218222, "lat": 37.797103720523864}, {"no": "오염원-2024-00049", "name": "가평상용현대서비스", "mark": "가평상용현대서비스", "addr": "경기도 가평군 상면 율길리 374 외 4", "cat": "운수장비정비시설(폐차장포함)", "status": "", "lng": 127.29557258165327, "lat": 37.830971460823875}, {"no": "오염원-2024-00042", "name": "정원건설기계정비", "mark": "정원건설기계정비", "addr": "경기도 가평군 상면 율길리 485-14", "cat": "운수장비정비시설(폐차장포함)", "status": "", "lng": 127.28940636131438, "lat": 37.84066083422282}, {"no": "오염원-2024-00057", "name": "안경닥터", "mark": "안경닥터", "addr": "경기도 가평군 조종면 현리 265-5", "cat": "안경점", "status": "", "lng": 127.34893930022986, "lat": 37.818632925540456}, {"no": "오염원-2024-00059", "name": "경일사진관", "mark": "경일사진관", "addr": "경기도 가평군 조종면 현리 267-6", "cat": "사진처리 또는 X-Ray 시설", "status": "", "lng": 127.34767052426531, "lat": 37.81912700894253}, {"no": "오염원-2024-00055", "name": "금성안경원", "mark": "금성안경원", "addr": "경기도 가평군 조종면 현리 268-5", "cat": "안경점", "status": "", "lng": 127.34773313064355, "lat": 37.8193396958797}, {"no": "오염원-2024-00054", "name": "가평군농협하면지점", "mark": "가평군농협하면지점", "addr": "경기도 가평군 조종면 현리 334-2", "cat": "운수장비정비시설(폐차장포함)", "status": "", "lng": 127.3428911651387, "lat": 37.820157104246576}, {"no": "오염원-2024-00058", "name": "김외과의원", "mark": "김외과의원", "addr": "경기도 가평군 조종면 현리 410-15", "cat": "사진처리 또는 X-Ray 시설", "status": "", "lng": 127.34810461212388, "lat": 37.818324995423765}, {"no": "오염원-2024-00056", "name": "새로본 안경", "mark": "새로본 안경", "addr": "경기도 가평군 조종면 현리 412-2", "cat": "안경점", "status": "", "lng": 127.34930482441547, "lat": 37.81841820283804}, {"no": "오염원-2024-00060", "name": "일급합동자동차공업사", "mark": "일급합동자동차공업사", "addr": "경기도 가평군 조종면 현리 477-57", "cat": "운수장비정비시설(폐차장포함)", "status": "", "lng": 127.35007843612233, "lat": 37.81366557590964}, {"no": "오염원-2024-00061", "name": "도마농원", "mark": "도마농원", "addr": "경기도 가평군 조종면 현리 508-2외2", "cat": "농축수산물단순가공시설", "status": "양식계", "lng": 127.35774573174012, "lat": 37.80849971632364}, {"no": "오염원-2024-00016", "name": "㈜다함레저-1", "mark": "㈜다함레저-1", "addr": "경기도 가평군 조종면 운악리 산144-1", "cat": "골프장", "status": "", "lng": 127.35296056725737, "lat": 37.877686227577975}, {"no": "오염원-2024-00018", "name": "㈜다함레저-2", "mark": "㈜다함레저-2", "addr": "경기도 가평군 조종면 운악리 산144-1", "cat": "운수장비정비시설(폐차장포함)", "status": "", "lng": 127.35296056725737, "lat": 37.877686227577975}, {"no": "오염원-2024-00017", "name": "리앤리CC", "mark": "리앤리CC", "addr": "경기도 가평군 조종면 운악리 산90", "cat": "골프장", "status": "", "lng": 127.36924060053275, "lat": 37.863791979524684}, {"no": "오염원-2024-00063", "name": "가평 청정수산", "mark": "가평 청정수산", "addr": "경기도 가평군 북면 화악리 431-2외4필지", "cat": "농축수산물단순가공시설", "status": "양식계", "lng": 127.56606298259061, "lat": 37.91900762952303}, {"no": "오염원-2024-00062", "name": "한림수산양어장", "mark": "한림수산양어장", "addr": "경기도 가평군 북면 제령리 211", "cat": "농축수산물단순가공시설", "status": "양식계", "lng": 127.54279335854159, "lat": 37.89147461328503}];
+  const markerList = [];
+
+  data.forEach((item) => {
+    const encName = encodeURIComponent(item.name);
+    const kakaoUrl = `kakaonavi://navigate?name=${encName}&x=${item.lng}&y=${item.lat}&coord_type=wgs84`;
+    const tmapUrl = `tmap://route?goalname=${encName}&goalx=${item.lng}&goaly=${item.lat}`;
+    const naverUrl = `nmap://navigation?dlat=${item.lat}&dlng=${item.lng}&dname=${encName}&appname=water-field`;
+
+    // No. 라벨 생성
+    const noText = item.no ? `<div class="popup-no">${item.no}</div>` : '';
+    const statusBadge = item.status ? `<span class="popup-badge badge-closed">${item.status}</span>` : '';
+    const catBadge = item.cat ? `<span class="popup-badge badge-cat">${item.cat}</span>` : '';
+
+    const popupHtml = `
+      <div class="popup-box">
+        ${noText}
+        <div class="popup-title">${item.name}</div>
+        <div>${catBadge}${statusBadge}</div>
+        <div class="popup-addr">${item.addr}</div>
+        <div class="navi-btn-group">
+          <a class="navi-btn btn-kakao" href="${kakaoUrl}">카카오내비 안내</a>
+          <a class="navi-btn btn-tmap" href="${tmapUrl}">티맵 안내</a>
+          <a class="navi-btn btn-naver" href="${naverUrl}">네이버 지도 안내</a>
+        </div>
+      </div>
+    `;
+
+    const marker = L.marker([item.lat, item.lng]).addTo(map).bindPopup(popupHtml);
+    markerList.push({ marker, item });
+  });
+
+  if (data.length > 0) {
+    const group = new L.featureGroup(markerList.map(m => m.marker));
+    map.fitBounds(group.getBounds().pad(0.1));
+  }
+
+  // 검색 필터 (No., 업소명, 주소, 업종 통합 검색)
+  function filterMarkers() {
+    const keyword = document.getElementById('search').value.toLowerCase().trim();
+    let visibleCount = 0;
+    markerList.forEach(({ marker, item }) => {
+      const match = item.name.toLowerCase().includes(keyword) || 
+                    item.addr.toLowerCase().includes(keyword) || 
+                    item.cat.toLowerCase().includes(keyword) ||
+                    (item.no && item.no.toLowerCase().includes(keyword));
+      if (match) {
+        if (!map.hasLayer(marker)) map.addLayer(marker);
+        visibleCount++;
+      } else {
+        if (map.hasLayer(marker)) map.removeLayer(marker);
+      }
+    });
+    document.getElementById('count-badge').textContent = `${visibleCount}개`;
+  }
+</script>
+</body>
+</html>
